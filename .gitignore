@@ -1,0 +1,22 @@
+# --- Backend (Python) ---
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/*.db
+backend/uploads/
+backend/.env
+backend/*.log
+
+# --- Editor local history (can contain old .env snapshots with real secrets) ---
+.history/
+
+# --- Frontend (Node) ---
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# --- OS / editors ---
+.DS_Store
+.vscode/
+.idea/

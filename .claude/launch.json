@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wakaless-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "C:\\Users\\DELL\\OneDrive\\Desktop\\WAKALESS\\frontend"],
+      "port": 5173
+    }
+  ]
+}
