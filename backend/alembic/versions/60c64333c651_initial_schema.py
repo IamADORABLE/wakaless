@@ -30,6 +30,7 @@ def upgrade() -> None:
     sa.Column('is_active', sa.Boolean(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('bank_name', sa.String(), nullable=True),
+    sa.Column('bank_code', sa.String(), nullable=True),
     sa.Column('bank_account_number', sa.String(), nullable=True),
     sa.Column('bank_account_name', sa.String(), nullable=True),
     sa.PrimaryKeyConstraint('id')
@@ -129,6 +130,8 @@ def upgrade() -> None:
     sa.Column('payout_status', sa.Enum('awaiting_payout', 'paid_out', name='payoutstatus'), nullable=False),
     sa.Column('payout_reference', sa.String(), nullable=True),
     sa.Column('payout_paid_at', sa.DateTime(), nullable=True),
+    sa.Column('is_renewal', sa.Boolean(), nullable=False),
+    sa.Column('inspection_confirmed_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['availability_request_id'], ['availability_requests.id'], ),
     sa.ForeignKeyConstraint(['listing_id'], ['listings.id'], ),
     sa.ForeignKeyConstraint(['renter_id'], ['users.id'], ),

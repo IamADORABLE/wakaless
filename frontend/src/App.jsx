@@ -15,6 +15,7 @@ import AdminReviewQueue from "./pages/AdminReviewQueue";
 import AdminVerificationQueue from "./pages/AdminVerificationQueue";
 import AdminAvailabilityQueue from "./pages/AdminAvailabilityQueue";
 import AdminPayouts from "./pages/AdminPayouts";
+import AdminInspections from "./pages/AdminInspections";
 import AdminUsers from "./pages/AdminUsers";
 import AdminTransactions from "./pages/AdminTransactions";
 import AdminChats from "./pages/AdminChats";
@@ -53,6 +54,7 @@ export default function App() {
         <Route path="/admin/verification-queue" element={<RequireRole role="admin"><AdminVerificationQueue /></RequireRole>} />
         <Route path="/admin/availability-queue" element={<RequireRole role="admin"><AdminAvailabilityQueue /></RequireRole>} />
         <Route path="/admin/payouts" element={<RequireRole role="admin"><AdminPayouts /></RequireRole>} />
+        <Route path="/admin/inspections" element={<RequireRole role="admin"><AdminInspections /></RequireRole>} />
         <Route path="/admin/users" element={<RequireRole role="admin"><AdminUsers /></RequireRole>} />
         <Route path="/admin/transactions" element={<RequireRole role="admin"><AdminTransactions /></RequireRole>} />
         <Route path="/admin/chats" element={<RequireRole role="admin"><AdminChats /></RequireRole>} />

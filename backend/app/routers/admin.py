@@ -14,7 +14,7 @@ from app.models.verification import LandlordVerification, VerificationStatus
 from app.schemas.availability import AvailabilityQueueItem, AvailabilityRequestOut, AvailabilityReview
 from app.schemas.chat import AdminChatThreadOut, ChatMessageOut
 from app.schemas.listing import ListingDetailOut, ListingReview
-from app.schemas.rent_payment import AdminTransactionItem
+from app.schemas.rent_payment import AdminInspectionItem, AdminTransactionItem
 from app.schemas.user import (
     AdminUserOut,
     PayoutMarkPaid,
@@ -232,6 +232,28 @@ def payouts_queue(admin: User = Depends(require_role(UserRole.admin)), db: Sessi
             bank_account_name=rp.listing.landlord.bank_account_name, rent_amount_ngn=rp.rent_amount_ngn,
             agreement_fee_ngn=rp.agreement_fee_ngn,
             commission_ngn=rp.commission_ngn, landlord_payout_ngn=rp.landlord_payout_ngn, paid_at=rp.paid_at,
+            is_renewal=rp.is_renewal, inspection_confirmed_at=rp.inspection_confirmed_at,
+        )
+        for rp in rows
+    ]
+
+
+@router.get("/inspections", response_model=list[AdminInspectionItem])
+def inspections(admin: User = Depends(require_role(UserRole.admin)), db: Session = Depends(get_db)):
+    """Every first-time tenancy and whether the renter has confirmed they
+    inspected the house and are satisfied. Renewals don't need this."""
+    rows = (
+        db.query(RentPayment)
+        .filter(RentPayment.is_renewal.is_(False))
+        .order_by(RentPayment.paid_at.desc())
+        .all()
+    )
+    return [
+        AdminInspectionItem(
+            id=rp.id, listing_title=rp.listing.title, renter_name=rp.renter.full_name,
+            renter_phone=rp.renter.phone, landlord_name=rp.listing.landlord.full_name,
+            paid_at=rp.paid_at, inspection_confirmed_at=rp.inspection_confirmed_at,
+            payout_status=rp.payout_status.value,
         )
         for rp in rows
     ]
@@ -249,6 +271,11 @@ def mark_payout_paid(
         raise HTTPException(status_code=404, detail="Rent payment not found")
     if rp.payout_status == PayoutStatus.paid_out:
         raise HTTPException(status_code=400, detail="This payout was already marked paid")
+    if not rp.is_renewal and not rp.inspection_confirmed_at:
+        raise HTTPException(
+            status_code=400,
+            detail="The renter hasn't confirmed they inspected the house and are satisfied yet. Check the Inspections queue.",
+        )
 
     rp.payout_status = PayoutStatus.paid_out
     rp.payout_reference = payload.payout_reference

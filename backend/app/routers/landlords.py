@@ -1,5 +1,6 @@
 from datetime import datetime
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
@@ -7,8 +8,16 @@ from app.core.deps import require_role
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.verification import LandlordVerification, VerificationStatus
-from app.schemas.user import BankDetailsOut, BankDetailsUpdate, VerificationOut, VerificationSubmit
+from app.schemas.user import (
+    BankDetailsOut,
+    BankDetailsUpdate,
+    BankOut,
+    ResolveAccountOut,
+    VerificationOut,
+    VerificationSubmit,
+)
 from app.services.notifications.messages import notify_admin_verification_pending
+from app.services.paystack_banks import list_nigerian_banks, resolve_account
 from app.services.storage import save_upload
 
 router = APIRouter(prefix="/landlords", tags=["landlords"])
@@ -75,8 +84,36 @@ def update_bank_details(
     db: Session = Depends(get_db),
 ):
     user.bank_name = payload.bank_name
+    user.bank_code = payload.bank_code
     user.bank_account_number = payload.bank_account_number
     user.bank_account_name = payload.bank_account_name
     db.commit()
     db.refresh(user)
     return BankDetailsOut.model_validate(user)
+
+
+@router.get("/banks", response_model=list[BankOut])
+def banks(user: User = Depends(require_role(UserRole.landlord))):
+    try:
+        return list_nigerian_banks()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="Couldn't reach the bank list right now. Try again shortly.")
+
+
+@router.get("/resolve-account", response_model=ResolveAccountOut)
+def resolve_account_number(
+    account_number: str,
+    bank_code: str,
+    user: User = Depends(require_role(UserRole.landlord)),
+):
+    try:
+        account_name = resolve_account(account_number, bank_code)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except httpx.HTTPStatusError:
+        raise HTTPException(status_code=400, detail="Couldn't verify this account number for the selected bank.")
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503, detail="Couldn't reach the bank verification service right now.")
+    return ResolveAccountOut(account_name=account_name)

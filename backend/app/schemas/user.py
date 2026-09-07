@@ -116,16 +116,27 @@ class AdminUserOut(BaseModel):
 
 class BankDetailsUpdate(BaseModel):
     bank_name: str = Field(min_length=2, max_length=140)
+    bank_code: str = Field(min_length=1, max_length=10)
     bank_account_number: str = Field(min_length=6, max_length=20)
     bank_account_name: str = Field(min_length=2, max_length=140)
 
 
 class BankDetailsOut(BaseModel):
     bank_name: str | None
+    bank_code: str | None
     bank_account_number: str | None
     bank_account_name: str | None
 
     model_config = {"from_attributes": True}
+
+
+class BankOut(BaseModel):
+    name: str
+    code: str
+
+
+class ResolveAccountOut(BaseModel):
+    account_name: str
 
 
 class PayoutQueueItem(BaseModel):
@@ -140,6 +151,8 @@ class PayoutQueueItem(BaseModel):
     commission_ngn: int
     landlord_payout_ngn: int
     paid_at: datetime
+    is_renewal: bool
+    inspection_confirmed_at: datetime | None
 
 
 class PayoutMarkPaid(BaseModel):

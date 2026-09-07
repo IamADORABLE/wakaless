@@ -69,17 +69,22 @@ export const api = {
   submitVerification: (payload) => request("/landlords/me/verify", { method: "POST", body: payload }),
   myBankDetails: () => request("/landlords/me/bank-details"),
   updateBankDetails: (payload) => request("/landlords/me/bank-details", { method: "PUT", body: payload }),
+  banks: () => request("/landlords/banks"),
+  resolveAccount: (accountNumber, bankCode) =>
+    request(`/landlords/resolve-account?${new URLSearchParams({ account_number: accountNumber, bank_code: bankCode })}`),
 
   // availability
   requestAvailability: (listingId) =>
     request("/availability/request", { method: "POST", body: { listing_id: listingId } }),
   getAvailabilityStatus: (listingId) => request(`/availability/status/${listingId}`),
+  myAvailabilityRequests: () => request("/availability/mine"),
 
   // rent payments
   initiateRentPayment: (listingId) =>
     request("/rent-payments/initiate", { method: "POST", body: { listing_id: listingId } }),
   verifyRentPayment: (reference) => request("/rent-payments/verify", { method: "POST", body: { reference } }),
   myRentPayments: () => request("/rent-payments/mine"),
+  confirmInspection: (id) => request(`/rent-payments/${id}/confirm-inspection`, { method: "POST" }),
   getReceipt: (id) => request(`/rent-payments/${id}/receipt`),
   initiateRenewal: (id) => request(`/rent-payments/${id}/renew/initiate`, { method: "POST" }),
   verifyRenewal: (id, reference) => request(`/rent-payments/${id}/renew/verify`, { method: "POST", body: { reference } }),
@@ -104,6 +109,7 @@ export const api = {
   reviewAvailability: (id, payload) => request(`/admin/availability-requests/${id}/review`, { method: "POST", body: payload }),
   payoutsQueue: () => request("/admin/payouts-queue"),
   markPayoutPaid: (id, payload) => request(`/admin/payouts/${id}/mark-paid`, { method: "POST", body: payload }),
+  adminInspections: () => request("/admin/inspections"),
   adminTransactions: () => request("/admin/transactions"),
   adminChatThreads: () => request("/admin/chat-threads"),
   adminChatMessages: (rentPaymentId) => request(`/admin/chat-threads/${rentPaymentId}/messages`),

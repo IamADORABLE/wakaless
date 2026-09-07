@@ -40,6 +40,8 @@ class RentPaymentOut(BaseModel):
     start_date: datetime
     end_date: datetime
     status: RentPaymentStatus
+    is_renewal: bool
+    inspection_confirmed_at: datetime | None = None
 
 
 class AdminTransactionItem(BaseModel):
@@ -60,6 +62,20 @@ class AdminTransactionItem(BaseModel):
     paid_at: datetime
     start_date: datetime
     end_date: datetime
+
+
+class AdminInspectionItem(BaseModel):
+    """One first-time tenancy, for the admin to see whether the renter has
+    confirmed they inspected the house and are satisfied. Renewals are
+    excluded — the renter already lives there, nothing to inspect."""
+    id: str
+    listing_title: str
+    renter_name: str
+    renter_phone: str
+    landlord_name: str
+    paid_at: datetime
+    inspection_confirmed_at: datetime | None
+    payout_status: str
 
 
 class ReceiptOut(BaseModel):

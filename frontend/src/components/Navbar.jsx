@@ -103,6 +103,7 @@ export default function Navbar() {
           {user?.role === "admin" && <SidebarLink to="/admin/verification-queue">Verifications</SidebarLink>}
           {user?.role === "admin" && <SidebarLink to="/admin/availability-queue">Availability</SidebarLink>}
           {user?.role === "admin" && <SidebarLink to="/admin/payouts">Payouts</SidebarLink>}
+          {user?.role === "admin" && <SidebarLink to="/admin/inspections">Inspections</SidebarLink>}
           {user?.role === "admin" && <SidebarLink to="/admin/transactions">Transactions</SidebarLink>}
           {user?.role === "admin" && <SidebarLink to="/admin/chats">Chats</SidebarLink>}
           {user?.role === "admin" && <SidebarLink to="/admin/users">Users</SidebarLink>}

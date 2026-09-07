@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models.availability import AvailabilityRequest, AvailabilityStatus
 from app.models.listing import Listing, ListingStatus
 from app.models.user import User, UserRole
-from app.schemas.availability import AvailabilityRequestCreate, AvailabilityRequestOut
+from app.schemas.availability import AvailabilityRequestCreate, AvailabilityRequestOut, MyAvailabilityRequestOut
 from app.services.notifications.messages import notify_admin_availability_request, notify_landlord_availability_check
 
 router = APIRouter(prefix="/availability", tags=["availability"])
@@ -61,6 +61,28 @@ def request_availability(
     notify_admin_availability_request(listing, user)
 
     return AvailabilityRequestOut.model_validate(request)
+
+
+@router.get("/mine", response_model=list[MyAvailabilityRequestOut])
+def my_availability_requests(user: User = Depends(require_role(UserRole.renter)), db: Session = Depends(get_db)):
+    """Every listing this renter has asked about, and whether it's still
+    available: their own request status (pending/confirmed/rejected) plus
+    the listing's current status (still live, already rented, expired)."""
+    requests = (
+        db.query(AvailabilityRequest)
+        .filter(AvailabilityRequest.renter_id == user.id)
+        .order_by(AvailabilityRequest.requested_at.desc())
+        .all()
+    )
+    return [
+        MyAvailabilityRequestOut(
+            id=r.id, listing_id=r.listing_id, listing_title=r.listing.title,
+            listing_area=r.listing.area, listing_status=r.listing.status,
+            status=r.status, requested_at=r.requested_at,
+            rejection_reason=r.rejection_reason, consumed_at=r.consumed_at,
+        )
+        for r in requests
+    ]
 
 
 @router.get("/status/{listing_id}", response_model=AvailabilityRequestOut | None)

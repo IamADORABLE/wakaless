@@ -148,6 +148,56 @@ def test_admin_notification_is_skipped_without_admin_email(monkeypatch):
     assert notifications_messages.notify_admin_verification_pending(landlord) is False
 
 
+def test_bank_details_round_trip_with_bank_code():
+    landlord_headers = _signup("+2348011110006", "bankdetails@example.com", "landlord", "Bank Details Landlord")
+
+    update = client.put("/landlords/me/bank-details", json={
+        "bank_name": "Guaranty Trust Bank", "bank_code": "058",
+        "bank_account_number": "0123456789", "bank_account_name": "Bank Details Landlord",
+    }, headers=landlord_headers)
+    assert update.status_code == 200, update.text
+    assert update.json()["bank_code"] == "058"
+
+    fetched = client.get("/landlords/me/bank-details", headers=landlord_headers)
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["bank_code"] == "058"
+
+
+def test_list_banks_and_resolve_account(monkeypatch):
+    landlord_headers = _signup("+2348011110007", "listbanks@example.com", "landlord", "List Banks Landlord")
+
+    monkeypatch.setattr(
+        landlords_router, "list_nigerian_banks",
+        lambda: [{"name": "Guaranty Trust Bank", "code": "058"}, {"name": "Access Bank", "code": "044"}],
+    )
+    banks_resp = client.get("/landlords/banks", headers=landlord_headers)
+    assert banks_resp.status_code == 200, banks_resp.text
+    assert {"name": "Access Bank", "code": "044"} in banks_resp.json()
+
+    monkeypatch.setattr(
+        landlords_router, "resolve_account",
+        lambda account_number, bank_code: "Ade Ade Resolved",
+    )
+    resolve_resp = client.get(
+        "/landlords/resolve-account",
+        params={"account_number": "0123456789", "bank_code": "058"},
+        headers=landlord_headers,
+    )
+    assert resolve_resp.status_code == 200, resolve_resp.text
+    assert resolve_resp.json()["account_name"] == "Ade Ade Resolved"
+
+
+def test_bank_lookup_fails_gracefully_without_paystack_key(monkeypatch):
+    landlord_headers = _signup("+2348011110008", "nopaystackkey@example.com", "landlord", "No Key Landlord")
+
+    def boom():
+        raise RuntimeError("PAYSTACK_SECRET_KEY is not set, so bank lookup/verification is unavailable.")
+
+    monkeypatch.setattr(landlords_router, "list_nigerian_banks", boom)
+    resp = client.get("/landlords/banks", headers=landlord_headers)
+    assert resp.status_code == 503
+
+
 def test_admin_can_approve_pending_verification():
     landlord_signup = client.post("/auth/signup", json={
         "full_name": "Pending Landlord", "phone": "+2348033334444", "email": "pending@example.com",
@@ -238,10 +288,21 @@ def test_full_rent_payment_flow():
     assert avail.status_code == 200, avail.text
     assert avail.json()["status"] == "pending"
 
+    mine = client.get("/availability/mine", headers=renter_headers).json()
+    mine_entry = next(r for r in mine if r["listing_id"] == listing_id)
+    assert mine_entry["status"] == "pending"
+    assert mine_entry["listing_status"] == "live"
+    assert mine_entry["consumed_at"] is None
+
     queue = client.get("/admin/availability-queue", headers=admin_headers).json()
     request_id = next(r["id"] for r in queue if r["listing_id"] == listing_id)
     confirm = client.post(f"/admin/availability-requests/{request_id}/review", json={"approve": True}, headers=admin_headers)
     assert confirm.status_code == 200, confirm.text
+
+    mine = client.get("/availability/mine", headers=renter_headers).json()
+    mine_entry = next(r for r in mine if r["listing_id"] == listing_id)
+    assert mine_entry["status"] == "confirmed"
+    assert mine_entry["listing_status"] == "live"
 
     initiate = client.post("/rent-payments/initiate", json={"listing_id": listing_id}, headers=renter_headers)
     assert initiate.status_code == 200, initiate.text
@@ -258,6 +319,12 @@ def test_full_rent_payment_flow():
     rp = verify.json()
     assert rp["landlord_phone"] == "+2348055551111"
     rent_payment_id = rp["id"]
+
+    # Paying consumes the availability confirmation and takes the listing off
+    # the renter's "still deciding" list (it now shows up under My rentals instead).
+    mine = client.get("/availability/mine", headers=renter_headers).json()
+    mine_entry = next(r for r in mine if r["listing_id"] == listing_id)
+    assert mine_entry["consumed_at"] is not None
 
     # Idempotency: a repeated verify call with the same reference (e.g. the
     # redirect callback firing twice) must return the same row, not create
@@ -288,6 +355,29 @@ def test_full_rent_payment_flow():
     assert entry["agreement_fee_ngn"] == 50000
     assert entry["commission_ngn"] == 20000
     assert entry["landlord_payout_ngn"] == 450000
+    assert entry["is_renewal"] is False
+    assert entry["inspection_confirmed_at"] is None
+
+    # The payout is held until the renter confirms they inspected the house.
+    blocked_payout = client.post(f"/admin/payouts/{rent_payment_id}/mark-paid", json={"payout_reference": "manual-1"}, headers=admin_headers)
+    assert blocked_payout.status_code == 400, blocked_payout.text
+
+    inspections = client.get("/admin/inspections", headers=admin_headers).json()
+    inspection_entry = next(i for i in inspections if i["id"] == rent_payment_id)
+    assert inspection_entry["inspection_confirmed_at"] is None
+
+    confirm = client.post(f"/rent-payments/{rent_payment_id}/confirm-inspection", headers=renter_headers)
+    assert confirm.status_code == 200, confirm.text
+    assert confirm.json()["inspection_confirmed_at"] is not None
+
+    # Can't confirm twice.
+    confirm_again = client.post(f"/rent-payments/{rent_payment_id}/confirm-inspection", headers=renter_headers)
+    assert confirm_again.status_code == 400
+
+    inspections = client.get("/admin/inspections", headers=admin_headers).json()
+    inspection_entry = next(i for i in inspections if i["id"] == rent_payment_id)
+    assert inspection_entry["inspection_confirmed_at"] is not None
+
     mark_paid = client.post(f"/admin/payouts/{rent_payment_id}/mark-paid", json={"payout_reference": "manual-1"}, headers=admin_headers)
     assert mark_paid.status_code == 200, mark_paid.text
 
@@ -320,6 +410,14 @@ def test_full_rent_payment_flow():
     renew_payouts = client.get("/admin/payouts-queue", headers=admin_headers).json()
     renew_entry = next(p for p in renew_payouts if p["rent_payment_id"] == new_rent_payment_id)
     assert renew_entry["landlord_payout_ngn"] == 400000
+    assert renew_entry["is_renewal"] is True
+
+    # Renewals skip the inspection gate entirely: the renter already lives there.
+    renew_mark_paid = client.post(f"/admin/payouts/{new_rent_payment_id}/mark-paid", json={"payout_reference": "manual-2"}, headers=admin_headers)
+    assert renew_mark_paid.status_code == 200, renew_mark_paid.text
+
+    renew_inspections = client.get("/admin/inspections", headers=admin_headers).json()
+    assert all(i["id"] != new_rent_payment_id for i in renew_inspections)
 
 
 def test_signup_starts_unverified_and_verify_email_confirms_it():

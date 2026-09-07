@@ -32,6 +32,7 @@ class User(Base):
     # An admin manually bank-transfers the landlord's share and marks the
     # rent payment "paid out" (see RentPayment.payout_status).
     bank_name = Column(String, nullable=True)
+    bank_code = Column(String, nullable=True)
     bank_account_number = Column(String, nullable=True)
     bank_account_name = Column(String, nullable=True)
 

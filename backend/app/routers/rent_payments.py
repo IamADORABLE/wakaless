@@ -39,7 +39,7 @@ def _out(rp: RentPayment) -> RentPaymentOut:
         landlord_phone=listing.landlord.phone, landlord_name=listing.landlord.full_name,
         listing_title=listing.title, rent_amount_ngn=rp.rent_amount_ngn,
         rent_duration_months=rp.rent_duration_months, start_date=rp.start_date, end_date=rp.end_date,
-        status=rp.status,
+        status=rp.status, is_renewal=rp.is_renewal, inspection_confirmed_at=rp.inspection_confirmed_at,
     )
 
 
@@ -202,6 +202,30 @@ def my_rent_payments(user: User = Depends(require_role(UserRole.renter)), db: Se
     return [_out(rp) for rp in rows]
 
 
+@router.post("/{rent_payment_id}/confirm-inspection", response_model=RentPaymentOut)
+def confirm_inspection(
+    rent_payment_id: str,
+    user: User = Depends(require_role(UserRole.renter)),
+    db: Session = Depends(get_db),
+):
+    """The renter ticking "the house is good" after meeting the landlord and
+    seeing it in person. Until this happens, the landlord's payout is held
+    (see the payouts-queue gate in admin.py) — a renewal never needs this,
+    since the renter already occupies the place."""
+    rp = db.query(RentPayment).filter(RentPayment.id == rent_payment_id, RentPayment.renter_id == user.id).first()
+    if not rp:
+        raise HTTPException(status_code=404, detail="Rent payment not found")
+    if rp.is_renewal:
+        raise HTTPException(status_code=400, detail="Renewals don't need an inspection confirmation")
+    if rp.inspection_confirmed_at:
+        raise HTTPException(status_code=400, detail="Already confirmed")
+
+    rp.inspection_confirmed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(rp)
+    return _out(rp)
+
+
 @router.get("/{rent_payment_id}/receipt", response_model=ReceiptOut)
 def get_receipt(rent_payment_id: str, user: User = Depends(require_role(UserRole.renter)), db: Session = Depends(get_db)):
     rp = db.query(RentPayment).filter(RentPayment.id == rent_payment_id, RentPayment.renter_id == user.id).first()
@@ -307,7 +331,7 @@ def verify_renewal(
         rent_amount_ngn=old_rp.rent_amount_ngn, rent_duration_months=old_rp.rent_duration_months,
         agreement_fee_ngn=0, total_paid_ngn=old_rp.rent_amount_ngn,
         payment_reference=payload.reference, start_date=new_start, end_date=new_end,
-        commission_ngn=0, landlord_payout_ngn=old_rp.rent_amount_ngn,
+        commission_ngn=0, landlord_payout_ngn=old_rp.rent_amount_ngn, is_renewal=True,
     )
     db.add(new_rp)
     db.commit()

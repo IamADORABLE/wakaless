@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -53,6 +53,14 @@ class RentPayment(Base):
     payout_status = Column(Enum(PayoutStatus), default=PayoutStatus.awaiting_payout, nullable=False)
     payout_reference = Column(String, nullable=True)
     payout_paid_at = Column(DateTime, nullable=True)
+
+    # Renewals extend a tenancy the renter already occupies, so they skip
+    # the inspection gate below entirely. A first payment holds the
+    # landlord's payout until the renter ticks "the house is good" in My
+    # rentals — an admin can't mark it paid out before that (see
+    # POST /rent-payments/{id}/confirm-inspection and the payouts-queue gate).
+    is_renewal = Column(Boolean, default=False, nullable=False)
+    inspection_confirmed_at = Column(DateTime, nullable=True)
 
     renter = relationship("User", back_populates="rent_payments")
     listing = relationship("Listing", back_populates="rent_payments")

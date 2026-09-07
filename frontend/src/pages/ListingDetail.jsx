@@ -150,9 +150,15 @@ export default function ListingDetail() {
                   ) : availability.status === "pending" ? (
                     <div className="banner banner-info">We've notified the landlord. An admin will confirm shortly. Check back soon.</div>
                   ) : (
-                    <button className="btn btn-primary btn-block" onClick={handlePay} disabled={busy}>
-                      {busy ? "Processing…" : `Pay ${formatNaira(listing.rent_amount_ngn + listing.agreement_fee_ngn + listing.commission_ngn)} now`}
-                    </button>
+                    <>
+                      <p className="field-hint" style={{ marginBottom: 12 }}>
+                        Wakaless holds this payment. It's only released to the landlord after you've met them,
+                        seen the house in person, and confirmed you're satisfied (from My rentals).
+                      </p>
+                      <button className="btn btn-primary btn-block" onClick={handlePay} disabled={busy}>
+                        {busy ? "Processing…" : `Pay ${formatNaira(listing.rent_amount_ngn + listing.agreement_fee_ngn + listing.commission_ngn)} now`}
+                      </button>
+                    </>
                   )
                 ) : (
                   <a href="/signup" className="btn btn-primary btn-block">Sign up as a renter to pay</a>
