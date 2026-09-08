@@ -1,15 +1,23 @@
+import re
 import uuid
 
 from fastapi.testclient import TestClient
 
-from app.core.security import create_action_token
 from app.main import app
 from app.routers import availability as availability_router
 from app.routers import landlords as landlords_router
 from app.routers import listings as listings_router
 from app.services.notifications import messages as notifications_messages
+from app.services.notifications.mock import MockEmailProvider
 
 client = TestClient(app)
+
+
+def _last_code_for(email):
+    """Pulls the 6-digit code out of the most recent mock email sent to
+    this address — stands in for "read the code from your inbox"."""
+    msg = next(m for m in reversed(MockEmailProvider.sent) if m["to"] == email)
+    return re.search(r"\b(\d{6})\b", msg["body"]).group(1)
 
 
 def test_health():
@@ -50,12 +58,12 @@ def test_landlord_verification_flow_no_automated_check():
 
     resp = client.post(
         "/landlords/me/verify",
-        json={"ownership_proof_url": "https://example.com/proof.jpg"},
+        json={"photo_url": "https://example.com/proof.jpg"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
     # No automated identity check — every submission goes to "pending" for
-    # an admin to manually review the uploaded proof of ownership.
+    # an admin to manually review the uploaded photo.
     assert resp.json()["status"] == "pending"
 
 
@@ -79,7 +87,7 @@ def test_submitting_verification_emails_the_admin_inbox(monkeypatch):
 
     resp = client.post(
         "/landlords/me/verify",
-        json={"ownership_proof_url": "https://example.com/proof.jpg"},
+        json={"photo_url": "https://example.com/proof.jpg"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -206,7 +214,7 @@ def test_admin_can_approve_pending_verification():
     landlord_headers = {"Authorization": f"Bearer {landlord_signup.json()['access_token']}"}
     client.post(
         "/landlords/me/verify",
-        json={"ownership_proof_url": "https://example.com/proof2.jpg"},
+        json={"photo_url": "https://example.com/proof2.jpg"},
         headers=landlord_headers,
     )
 
@@ -219,7 +227,7 @@ def test_admin_can_approve_pending_verification():
     queue = client.get("/admin/verification-queue", headers=admin_headers)
     assert queue.status_code == 200, queue.text
     entry = next(v for v in queue.json() if v["full_name"] == "Pending Landlord")
-    assert entry["ownership_proof_url"] == "https://example.com/proof2.jpg"
+    assert entry["photo_url"] == "https://example.com/proof2.jpg"
 
     review = client.post(
         f"/admin/verifications/{entry['id']}/review",
@@ -253,13 +261,90 @@ def _signup(phone, email, role, name="Test User"):
 
 
 def _verify_landlord(headers, full_name):
-    resp = client.post("/landlords/me/verify", json={"ownership_proof_url": "https://example.com/proof.jpg"}, headers=headers)
+    resp = client.post("/landlords/me/verify", json={"photo_url": "https://example.com/proof.jpg"}, headers=headers)
     assert resp.status_code == 200, resp.text
     unique = uuid.uuid4().hex[:8]
     admin_headers = _signup(f"+234809{unique[:7]}", f"admin-verifier-{unique}@example.com", "admin", "Verifier Admin")
     queue = client.get("/admin/verification-queue", headers=admin_headers).json()
     entry = next(v for v in queue if v["full_name"] == full_name)
     client.post(f"/admin/verifications/{entry['id']}/review", json={"approve": True}, headers=admin_headers)
+
+
+def _listing_payload(title="A listing"):
+    return {
+        "title": title, "photos": ["https://example.com/p.jpg"],
+        "rent_amount_ngn": 300000, "rent_duration_months": 12, "agreement_fee_ngn": 20000,
+        "area": "Yaba", "address": "1 Test St", "ownership_doc_url": "https://example.com/doc.jpg",
+    }
+
+
+def test_listing_accepts_multiple_photos_and_an_optional_video():
+    landlord_headers = _signup("+2348011110011", "multiphoto@example.com", "landlord", "Multi Photo Landlord")
+    _verify_landlord(landlord_headers, "Multi Photo Landlord")
+
+    payload = _listing_payload("Flat with a gallery")
+    payload["photos"] = [f"https://example.com/p{i}.jpg" for i in range(5)]
+    payload["video_url"] = "https://example.com/walkthrough.mp4"
+
+    resp = client.post("/listings", json=payload, headers=landlord_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["photos"] == payload["photos"]
+    assert data["video_url"] == payload["video_url"]
+
+    # More than 10 photos is rejected by request validation.
+    too_many = _listing_payload("Too many photos flat")
+    too_many["photos"] = [f"https://example.com/p{i}.jpg" for i in range(11)]
+    rejected = client.post("/listings", json=too_many, headers=landlord_headers)
+    assert rejected.status_code == 422, rejected.text
+
+
+def test_second_listing_requires_paid_fee():
+    landlord_headers = _signup("+2348011110009", "secondlisting@example.com", "landlord", "Second Listing Landlord")
+    _verify_landlord(landlord_headers, "Second Listing Landlord")
+
+    first = client.post("/listings", json=_listing_payload("First flat (free)"), headers=landlord_headers)
+    assert first.status_code == 200, first.text
+
+    # Second listing is blocked until the fee is paid.
+    blocked = client.post("/listings", json=_listing_payload("Second flat"), headers=landlord_headers)
+    assert blocked.status_code == 402, blocked.text
+
+    # Can't initiate the fee before ever creating a first listing... but can
+    # for a landlord who already has one, which this one does.
+    initiate = client.post("/listings/additional-fee/initiate", headers=landlord_headers)
+    assert initiate.status_code == 200, initiate.text
+    assert initiate.json()["amount_ngn"] == 5000
+    reference = initiate.json()["reference"]
+
+    # Can't create the listing before the fee actually verifies.
+    still_blocked = client.post("/listings", json=_listing_payload("Second flat"), headers=landlord_headers)
+    assert still_blocked.status_code == 402, still_blocked.text
+
+    verify = client.post("/listings/additional-fee/verify", json={"reference": reference}, headers=landlord_headers)
+    assert verify.status_code == 200, verify.text
+
+    # Idempotent: verifying the same reference twice doesn't error.
+    verify_again = client.post("/listings/additional-fee/verify", json={"reference": reference}, headers=landlord_headers)
+    assert verify_again.status_code == 200, verify_again.text
+
+    second = client.post("/listings", json=_listing_payload("Second flat"), headers=landlord_headers)
+    assert second.status_code == 200, second.text
+
+    # The fee was consumed by that listing — a third one needs a fresh fee payment.
+    third_blocked = client.post("/listings", json=_listing_payload("Third flat"), headers=landlord_headers)
+    assert third_blocked.status_code == 402, third_blocked.text
+
+
+def test_first_listing_is_free_and_fee_initiate_rejects_it():
+    landlord_headers = _signup("+2348011110010", "firstlistingfree@example.com", "landlord", "First Listing Landlord")
+    _verify_landlord(landlord_headers, "First Listing Landlord")
+
+    no_fee_yet = client.post("/listings/additional-fee/initiate", headers=landlord_headers)
+    assert no_fee_yet.status_code == 400
+
+    first = client.post("/listings", json=_listing_payload("Only flat"), headers=landlord_headers)
+    assert first.status_code == 200, first.text
 
 
 def test_full_rent_payment_flow():
@@ -429,17 +514,19 @@ def test_signup_starts_unverified_and_verify_email_confirms_it():
     user = signup.json()["user"]
     assert user["email_verified"] is False
 
-    token = create_action_token(subject=user["id"], purpose="verify_email", expires_minutes=60)
-    verify = client.post("/auth/verify-email", json={"token": token})
+    code = _last_code_for("verifyme@example.com")
+    wrong_code = client.post("/auth/verify-email", json={"email": "verifyme@example.com", "code": "000000" if code != "000000" else "111111"})
+    assert wrong_code.status_code == 400
+
+    verify = client.post("/auth/verify-email", json={"email": "verifyme@example.com", "code": code})
     assert verify.status_code == 200, verify.text
 
     login = client.post("/auth/login", json={"identifier": "verifyme@example.com", "password": "supersecret1"})
     assert login.json()["user"]["email_verified"] is True
 
-    # A token minted for a different purpose (e.g. password reset) must not verify an email.
-    wrong_purpose_token = create_action_token(subject=user["id"], purpose="reset_password", expires_minutes=60)
-    rejected = client.post("/auth/verify-email", json={"token": wrong_purpose_token})
-    assert rejected.status_code == 400
+    # A consumed code can't be replayed.
+    replay = client.post("/auth/verify-email", json={"email": "verifyme@example.com", "code": code})
+    assert replay.status_code == 400
 
 
 def test_resend_verification_is_silent_about_account_existence():
@@ -448,6 +535,7 @@ def test_resend_verification_is_silent_about_account_existence():
         "password": "supersecret1", "role": "renter",
     })
     assert signup.status_code == 200
+    signup_code = _last_code_for("resendme@example.com")
 
     known = client.post("/auth/resend-verification", json={"email": "resendme@example.com"})
     unknown = client.post("/auth/resend-verification", json={"email": "doesnotexist@example.com"})
@@ -455,13 +543,20 @@ def test_resend_verification_is_silent_about_account_existence():
     assert unknown.status_code == 200
     assert known.json() == unknown.json()
 
+    # The resend issues a fresh code, invalidating the one from signup.
+    resend_code = _last_code_for("resendme@example.com")
+    stale = client.post("/auth/verify-email", json={"email": "resendme@example.com", "code": signup_code})
+    assert stale.status_code == 400
+    verify = client.post("/auth/verify-email", json={"email": "resendme@example.com", "code": resend_code})
+    assert verify.status_code == 200, verify.text
+
 
 def test_forgot_password_and_reset_password_flow():
     signup = client.post("/auth/signup", json={
         "full_name": "Forgetful Renter", "phone": "+2348066667777", "email": "forgetful@example.com",
         "password": "originalpass1", "role": "renter",
     })
-    user_id = signup.json()["user"]["id"]
+    assert signup.status_code == 200
 
     forgot = client.post("/auth/forgot-password", json={"email": "forgetful@example.com"})
     assert forgot.status_code == 200
@@ -470,8 +565,14 @@ def test_forgot_password_and_reset_password_flow():
     forgot_unknown = client.post("/auth/forgot-password", json={"email": "notreal@example.com"})
     assert forgot_unknown.json() == forgot.json()
 
-    reset_token = create_action_token(subject=user_id, purpose="reset_password", expires_minutes=30)
-    reset = client.post("/auth/reset-password", json={"token": reset_token, "new_password": "brandnewpass1"})
+    code = _last_code_for("forgetful@example.com")
+
+    wrong_code = client.post("/auth/reset-password", json={
+        "email": "forgetful@example.com", "code": "000000" if code != "000000" else "111111", "new_password": "brandnewpass1",
+    })
+    assert wrong_code.status_code == 400
+
+    reset = client.post("/auth/reset-password", json={"email": "forgetful@example.com", "code": code, "new_password": "brandnewpass1"})
     assert reset.status_code == 200, reset.text
 
     old_password_login = client.post("/auth/login", json={"identifier": "forgetful@example.com", "password": "originalpass1"})
@@ -480,7 +581,24 @@ def test_forgot_password_and_reset_password_flow():
     new_password_login = client.post("/auth/login", json={"identifier": "forgetful@example.com", "password": "brandnewpass1"})
     assert new_password_login.status_code == 200
 
-    # A token minted for a different purpose (e.g. email verification) must not reset a password.
-    wrong_purpose_token = create_action_token(subject=user_id, purpose="verify_email", expires_minutes=30)
-    rejected = client.post("/auth/reset-password", json={"token": wrong_purpose_token, "new_password": "anotherpass1"})
-    assert rejected.status_code == 400
+    # A consumed code can't be replayed to reset the password again.
+    replay = client.post("/auth/reset-password", json={"email": "forgetful@example.com", "code": code, "new_password": "anotherpass1"})
+    assert replay.status_code == 400
+
+
+def test_verification_code_locks_out_after_too_many_wrong_attempts():
+    signup = client.post("/auth/signup", json={
+        "full_name": "Lockout Renter", "phone": "+2348066667778", "email": "lockout@example.com",
+        "password": "originalpass1", "role": "renter",
+    })
+    assert signup.status_code == 200
+    code = _last_code_for("lockout@example.com")
+    wrong = "000000" if code != "000000" else "111111"
+
+    for _ in range(5):
+        resp = client.post("/auth/verify-email", json={"email": "lockout@example.com", "code": wrong})
+        assert resp.status_code == 400
+
+    # Even the correct code no longer works once the attempt limit is spent.
+    exhausted = client.post("/auth/verify-email", json={"email": "lockout@example.com", "code": code})
+    assert exhausted.status_code == 400

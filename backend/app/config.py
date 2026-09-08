@@ -57,9 +57,11 @@ class Settings(BaseSettings):
     zeptomail_smtp_user: str = ""
     zeptomail_smtp_password: str = ""
 
-    # Email verification / password reset token lifetimes.
-    email_verification_expire_minutes: int = 60 * 24  # 24h
-    password_reset_expire_minutes: int = 30
+    # Email verification / password reset codes: how long a code stays
+    # valid, and how many wrong guesses are allowed before it's dead.
+    email_verification_code_expire_minutes: int = 15
+    password_reset_code_expire_minutes: int = 10
+    verification_code_max_attempts: int = 5
 
     # SMS: mock | termii
     sms_provider: str = "mock"

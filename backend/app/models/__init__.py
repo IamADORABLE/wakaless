@@ -5,6 +5,7 @@ from app.models.availability import AvailabilityRequest, AvailabilityStatus
 from app.models.rent_payment import RentPayment, RentPaymentStatus, PayoutStatus
 from app.models.chat import ChatMessage
 from app.models.transaction import Transaction, TransactionType, TransactionStatus
+from app.models.verification_code import VerificationCode, VerificationPurpose
 
 __all__ = [
     "User",
@@ -22,4 +23,6 @@ __all__ = [
     "Transaction",
     "TransactionType",
     "TransactionStatus",
+    "VerificationCode",
+    "VerificationPurpose",
 ]

@@ -19,9 +19,9 @@ UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 
-def save_upload(file: UploadFile, subfolder: str) -> str:
+def save_upload(file: UploadFile, subfolder: str, resource_type: str = "auto") -> str:
     if settings.storage_provider == "cloudinary":
-        return _save_to_cloudinary(file, subfolder)
+        return _save_to_cloudinary(file, subfolder, resource_type)
     return _save_locally(file, subfolder)
 
 
@@ -36,10 +36,10 @@ def _save_locally(file: UploadFile, subfolder: str) -> str:
     return f"/uploads/{subfolder}/{name}"
 
 
-def _save_to_cloudinary(file: UploadFile, subfolder: str) -> str:
+def _save_to_cloudinary(file: UploadFile, subfolder: str, resource_type: str) -> str:
     import cloudinary
     import cloudinary.uploader
 
     cloudinary.config(cloudinary_url=settings.cloudinary_url)
-    result = cloudinary.uploader.upload(file.file, folder=f"wakaless/{subfolder}")
+    result = cloudinary.uploader.upload(file.file, folder=f"wakaless/{subfolder}", resource_type=resource_type)
     return result["secure_url"]

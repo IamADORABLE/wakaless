@@ -47,6 +47,22 @@ button {
   padding: 0 20px;
 }
 
+/* --- Nav: full inline links on desktop, hamburger + slide-in sidebar on mobile --- */
+.nav-links {
+  display: none;
+}
+.nav-hamburger-btn {
+  display: flex;
+}
+@media (min-width: 860px) {
+  .nav-links {
+    display: flex;
+  }
+  .nav-hamburger-btn {
+    display: none;
+  }
+}
+
 /* --- Buttons --- */
 .btn {
   display: inline-flex;

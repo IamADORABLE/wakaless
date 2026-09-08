@@ -54,7 +54,8 @@ class Token(BaseModel):
 
 
 class EmailVerifyRequest(BaseModel):
-    token: str
+    email: str
+    code: str = Field(min_length=6, max_length=6)
 
 
 class ResendVerification(BaseModel):
@@ -66,12 +67,13 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str
+    email: str
+    code: str = Field(min_length=6, max_length=6)
     new_password: str = Field(min_length=8)
 
 
 class VerificationSubmit(BaseModel):
-    ownership_proof_url: str = Field(description="URL of the uploaded proof-of-ownership document/photo")
+    photo_url: str = Field(description="URL of the uploaded photo of the landlord")
 
 
 class VerificationOut(BaseModel):
@@ -88,7 +90,7 @@ class VerificationQueueItem(BaseModel):
     full_name: str
     phone: str
     email: str
-    ownership_proof_url: str | None
+    photo_url: str | None
     submitted_at: datetime | None
 
     model_config = {"from_attributes": True}

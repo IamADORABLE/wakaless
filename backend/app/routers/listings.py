@@ -11,17 +11,42 @@ from app.models.transaction import Transaction, TransactionStatus, TransactionTy
 from app.models.user import User, UserRole
 from app.models.verification import VerificationStatus
 from app.schemas.listing import (
+    AdditionalListingFeeInitiateOut,
+    AdditionalListingFeeVerify,
     ListingCardOut,
     ListingCreate,
     ListingDetailOut,
     ListingStatusUpdate,
 )
 from app.services.notifications.messages import notify_admin_new_listing
+from app.services.payments import get_payment_provider
 from app.services.payouts import compute_commission_ngn
 from app.services.storage import save_upload
 
 router = APIRouter(prefix="/listings", tags=["listings"])
 settings = get_settings()
+
+
+def _callback_url(**params) -> str:
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    return f"{settings.frontend_origin}/payments/callback?{query}"
+
+
+def _unused_paid_fee(db: Session, user_id: str) -> Transaction | None:
+    """An already-paid additional-listing-fee transaction not yet spent on a
+    listing (related_listing_id doubles as the "consumed" marker: it's set
+    the moment a listing is created off the back of this fee)."""
+    return (
+        db.query(Transaction)
+        .filter(
+            Transaction.user_id == user_id,
+            Transaction.type == TransactionType.additional_listing_fee,
+            Transaction.status == TransactionStatus.success,
+            Transaction.related_listing_id.is_(None),
+        )
+        .order_by(Transaction.completed_at.asc())
+        .first()
+    )
 
 
 def _verified_badge(listing: Listing) -> bool:
@@ -42,6 +67,7 @@ def _detail_out(listing: Listing) -> ListingDetailOut:
     return ListingDetailOut(
         **_card_out(listing).model_dump(),
         description=listing.description, created_at=listing.created_at,
+        video_url=listing.video_url,
         commission_ngn=compute_commission_ngn(listing.rent_amount_ngn),
     )
 
@@ -81,6 +107,11 @@ def upload_photo(file: UploadFile = File(...), user: User = Depends(require_role
     return {"url": save_upload(file, subfolder="listings")}
 
 
+@router.post("/video", summary="Upload an optional walkthrough video, returns its storage URL")
+def upload_video(file: UploadFile = File(...), user: User = Depends(require_role(UserRole.landlord))):
+    return {"url": save_upload(file, subfolder="listings-video", resource_type="video")}
+
+
 @router.post("/ownership-doc", summary="Upload proof of ownership (C of O / receipt / utility bill)")
 def upload_ownership_doc(file: UploadFile = File(...), user: User = Depends(require_role(UserRole.landlord))):
     return {"url": save_upload(file, subfolder="ownership-docs")}
@@ -95,7 +126,7 @@ def create_listing(
     if not user.verification or user.verification.status != VerificationStatus.verified:
         raise HTTPException(
             status_code=403,
-            detail="Submit and get approved for proof-of-ownership verification before creating a listing.",
+            detail="Submit and get approved for identity verification (upload a photo of yourself) before creating a listing.",
         )
 
     if payload.rent_duration_months not in settings.rent_duration_options():
@@ -104,26 +135,27 @@ def create_listing(
             detail=f"rent_duration_months must be one of {settings.rent_duration_options()}",
         )
 
+    # First listing is free; 2nd+ costs a one-time fee, paid up front via
+    # POST /listings/additional-fee/initiate + /verify before this call.
     existing_count = db.query(Listing).filter(Listing.landlord_id == user.id).count()
+    fee_txn = None
     if existing_count > 0:
-        # First listing is free; 2nd+ costs a one-time fee per the brief.
-        # MVP: fee is recorded and expected to be settled via the same
-        # rent-payment-style flow before the listing goes live. Wire the
-        # actual charge call here once the payment provider is chosen.
-        pending_fee = Transaction(
-            user_id=user.id,
-            type=TransactionType.additional_listing_fee,
-            status=TransactionStatus.pending,
-            amount_ngn=settings.additional_listing_fee_ngn,
-            provider=settings.payment_provider,
-        )
-        db.add(pending_fee)
+        fee_txn = _unused_paid_fee(db, user.id)
+        if not fee_txn:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"An additional listing fee of NGN {settings.additional_listing_fee_ngn:,} is required "
+                    "before creating another listing. Pay it via POST /listings/additional-fee/initiate."
+                ),
+            )
 
     listing = Listing(
         landlord_id=user.id,
         title=payload.title,
         description=payload.description,
         photos=payload.photos,
+        video_url=payload.video_url,
         rent_amount_ngn=payload.rent_amount_ngn,
         rent_duration_months=payload.rent_duration_months,
         agreement_fee_ngn=payload.agreement_fee_ngn,
@@ -139,9 +171,81 @@ def create_listing(
     db.commit()
     db.refresh(listing)
 
+    if fee_txn:
+        fee_txn.related_listing_id = listing.id
+        db.commit()
+
     notify_admin_new_listing(listing)
 
     return _detail_out(listing)
+
+
+@router.post("/additional-fee/initiate", response_model=AdditionalListingFeeInitiateOut)
+def initiate_additional_listing_fee(
+    user: User = Depends(require_role(UserRole.landlord)),
+    db: Session = Depends(get_db),
+):
+    """Pay the one-time fee for a 2nd+ listing (the 1st is free). Call this
+    before POST /listings when that endpoint has already rejected you with
+    402 — once verified, the fee is available for exactly one listing."""
+    existing_count = db.query(Listing).filter(Listing.landlord_id == user.id).count()
+    if existing_count == 0:
+        raise HTTPException(status_code=400, detail="Your first listing is free, no fee is required yet.")
+    if _unused_paid_fee(db, user.id):
+        raise HTTPException(status_code=400, detail="You already have a paid fee ready for your next listing.")
+
+    amount_ngn = settings.additional_listing_fee_ngn
+    provider = get_payment_provider()
+    initiated = provider.initiate(
+        amount_ngn=amount_ngn,
+        email=user.email,
+        metadata={"landlord_id": user.id, "purpose": "additional_listing_fee"},
+        callback_url=_callback_url(kind="additional_listing_fee"),
+    )
+
+    txn = Transaction(
+        user_id=user.id, type=TransactionType.additional_listing_fee, status=TransactionStatus.pending,
+        amount_ngn=amount_ngn, provider=settings.payment_provider, provider_reference=initiated.reference,
+    )
+    db.add(txn)
+    db.commit()
+
+    return AdditionalListingFeeInitiateOut(
+        provider=settings.payment_provider, authorization_url=initiated.authorization_url,
+        reference=initiated.reference, amount_ngn=amount_ngn,
+    )
+
+
+@router.post("/additional-fee/verify")
+def verify_additional_listing_fee(
+    payload: AdditionalListingFeeVerify,
+    user: User = Depends(require_role(UserRole.landlord)),
+    db: Session = Depends(get_db),
+):
+    # Idempotency: same reasoning as rent-payments verify — a redirect
+    # callback can fire more than once.
+    txn = (
+        db.query(Transaction)
+        .filter(Transaction.provider_reference == payload.reference, Transaction.user_id == user.id)
+        .first()
+    )
+    if not txn:
+        raise HTTPException(status_code=404, detail="No matching payment found for this reference")
+    if txn.status == TransactionStatus.success:
+        return {"status": "success"}
+
+    provider = get_payment_provider()
+    verified = provider.verify(payload.reference)
+    if not verified.success:
+        txn.status = TransactionStatus.failed
+        db.commit()
+        raise HTTPException(status_code=402, detail="Payment was not successful")
+
+    txn.status = TransactionStatus.success
+    txn.completed_at = datetime.utcnow()
+    txn.raw_response = verified.raw
+    db.commit()
+    return {"status": "success"}
 
 
 @router.get("/mine/list", response_model=list[ListingDetailOut])

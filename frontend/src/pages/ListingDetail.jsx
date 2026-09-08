@@ -23,10 +23,13 @@ export default function ListingDetail() {
   const [payment, setPayment] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activePhoto, setActivePhoto] = useState(0);
 
   useEffect(() => {
     api.getListing(id).then(setListing).catch((e) => setError(e.message));
   }, [id]);
+
+  useEffect(() => { setActivePhoto(0); }, [id]);
 
   useEffect(() => {
     if (user?.role !== "renter") return;
@@ -75,13 +78,38 @@ export default function ListingDetail() {
     <div className="page">
       <div className="container" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 32 }}>
         <div>
-          <div style={{ aspectRatio: "16/10", background: "#eee2c9", borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
-            {listing.photos?.[0] ? (
-              <img src={api.fileUrl(listing.photos[0])} alt={listing.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <div style={{ aspectRatio: "16/10", background: "#eee2c9", borderRadius: 12, overflow: "hidden", marginBottom: 8 }}>
+            {listing.photos?.[activePhoto] ? (
+              <img
+                src={api.fileUrl(listing.photos[activePhoto])} alt={listing.title}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
             ) : (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--muted)" }}>No photo yet</div>
             )}
           </div>
+          {listing.photos?.length > 1 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, overflowX: "auto" }}>
+              {listing.photos.map((photo, i) => (
+                <img
+                  key={photo + i}
+                  src={api.fileUrl(photo)}
+                  alt={`${listing.title} photo ${i + 1}`}
+                  onClick={() => setActivePhoto(i)}
+                  style={{
+                    width: 72, height: 54, objectFit: "cover", borderRadius: 8, cursor: "pointer", flexShrink: 0,
+                    border: i === activePhoto ? "2px solid var(--teal)" : "2px solid transparent",
+                  }}
+                />
+              ))}
+            </div>
+          )}
+          {listing.video_url && (
+            <video
+              controls src={api.fileUrl(listing.video_url)}
+              style={{ width: "100%", borderRadius: 12, marginBottom: 16, background: "#000" }}
+            />
+          )}
           <h1 style={{ margin: "0 0 6px" }}>{listing.title}</h1>
           <div style={{ marginBottom: 10 }}><VerifiedBadge verified={listing.verified_landlord} /></div>
           <p className="text-muted">{listing.area}</p>

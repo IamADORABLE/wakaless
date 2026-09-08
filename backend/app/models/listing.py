@@ -25,6 +25,7 @@ class Listing(Base):
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     photos = Column(JSON, default=list)  # list of storage URLs
+    video_url = Column(String, nullable=True)  # optional walkthrough video
 
     # Money fields kept separate per the brief ("agreement fee entered separately from rent")
     rent_amount_ngn = Column(Integer, nullable=False)  # total rent for rent_duration_months, not necessarily annual

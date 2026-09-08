@@ -17,12 +17,15 @@ class ListingCreate(BaseModel):
     lat: float | None = None
     lng: float | None = None
     ownership_doc_url: str = Field(description="C of O / receipt / utility bill upload")
+    video_url: str | None = Field(default=None, description="Optional walkthrough video upload")
 
     @field_validator("photos")
     @classmethod
-    def at_least_one_photo(cls, v: list[str]) -> list[str]:
+    def photo_count(cls, v: list[str]) -> list[str]:
         if len(v) < 1:
             raise ValueError("At least one listing photo is required")
+        if len(v) > 10:
+            raise ValueError("At most 10 listing photos are allowed")
         return v
 
 
@@ -44,11 +47,25 @@ class ListingCardOut(BaseModel):
 class ListingDetailOut(ListingCardOut):
     description: str | None
     created_at: datetime
+    video_url: str | None = None
     # The one-time commission a first payment on this listing would add.
     # Renewals don't charge it (see RentPayment.commission_ngn).
     commission_ngn: int = 0
     # Exact location + landlord contact are deliberately absent here.
     # See RentPaymentOut (schemas/rent_payment.py), returned only after a paid RentPayment.
+
+
+class AdditionalListingFeeInitiateOut(BaseModel):
+    """What the frontend needs to open the payment provider's checkout for
+    a landlord's 2nd+ listing fee (the 1st listing is free)."""
+    provider: str
+    authorization_url: str | None = None
+    reference: str
+    amount_ngn: int
+
+
+class AdditionalListingFeeVerify(BaseModel):
+    reference: str
 
 
 class ListingReview(BaseModel):

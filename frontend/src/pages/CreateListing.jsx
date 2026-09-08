@@ -1,19 +1,24 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 
 export default function CreateListing() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [durationOptions, setDurationOptions] = useState([]);
   const [form, setForm] = useState({
     title: "", description: "", rent_amount_ngn: "", rent_duration_months: "", agreement_fee_ngn: "",
     area: "", address: "", lat: "", lng: "",
   });
-  const [photoFile, setPhotoFile] = useState(null);
+  const [photoFiles, setPhotoFiles] = useState([]);
+  const [videoFile, setVideoFile] = useState(null);
   const [docFile, setDocFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [feeRequired, setFeeRequired] = useState(false);
+
+  const feeJustPaid = searchParams.get("fee_paid") === "1";
 
   useEffect(() => {
     api.rentDurationOptions().then(({ options }) => {
@@ -24,30 +29,70 @@ export default function CreateListing() {
 
   function set(field, value) { setForm((f) => ({ ...f, [field]: value })); }
 
+  function buildPayload(photoUrls, docUrl, videoUrl) {
+    return {
+      title: form.title,
+      description: form.description || undefined,
+      photos: photoUrls,
+      rent_amount_ngn: Number(form.rent_amount_ngn),
+      rent_duration_months: Number(form.rent_duration_months),
+      agreement_fee_ngn: Number(form.agreement_fee_ngn || 0),
+      area: form.area,
+      address: form.address,
+      lat: form.lat ? Number(form.lat) : undefined,
+      lng: form.lng ? Number(form.lng) : undefined,
+      ownership_doc_url: docUrl,
+      video_url: videoUrl || undefined,
+    };
+  }
+
+  async function uploadEverything() {
+    const [photoResults, { url: docUrl }, videoResult] = await Promise.all([
+      Promise.all(photoFiles.map((f) => api.uploadListingPhoto(f))),
+      api.uploadOwnershipDoc(docFile),
+      videoFile ? api.uploadListingVideo(videoFile) : Promise.resolve(null),
+    ]);
+    return {
+      photoUrls: photoResults.map((r) => r.url),
+      docUrl,
+      videoUrl: videoResult?.url,
+    };
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
-    if (!photoFile) return setError("Add at least one photo.");
+    if (photoFiles.length === 0) return setError("Add at least one photo.");
+    if (photoFiles.length > 10) return setError("At most 10 photos are allowed.");
     if (!docFile) return setError("Upload a proof-of-ownership document (C of O, receipt, or utility bill).");
     setBusy(true);
     try {
-      const [{ url: photoUrl }, { url: docUrl }] = await Promise.all([
-        api.uploadListingPhoto(photoFile),
-        api.uploadOwnershipDoc(docFile),
-      ]);
-      await api.createListing({
-        title: form.title,
-        description: form.description || undefined,
-        photos: [photoUrl],
-        rent_amount_ngn: Number(form.rent_amount_ngn),
-        rent_duration_months: Number(form.rent_duration_months),
-        agreement_fee_ngn: Number(form.agreement_fee_ngn || 0),
-        area: form.area,
-        address: form.address,
-        lat: form.lat ? Number(form.lat) : undefined,
-        lng: form.lng ? Number(form.lng) : undefined,
-        ownership_doc_url: docUrl,
-      });
+      const { photoUrls, docUrl, videoUrl } = await uploadEverything();
+      await api.createListing(buildPayload(photoUrls, docUrl, videoUrl));
+      setDone(true);
+      setTimeout(() => navigate("/landlord/dashboard"), 1200);
+    } catch (e) {
+      setError(e.message);
+      setFeeRequired(e.status === 402);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function payFeeAndRetry() {
+    setError("");
+    setBusy(true);
+    try {
+      const initiated = await api.initiateListingFee();
+      if (initiated.authorization_url) {
+        window.location.href = initiated.authorization_url;
+        return;
+      }
+      // Mock provider: verifies instantly, no redirect needed.
+      await api.verifyListingFee(initiated.reference);
+      const { photoUrls, docUrl, videoUrl } = await uploadEverything();
+      await api.createListing(buildPayload(photoUrls, docUrl, videoUrl));
+      setFeeRequired(false);
       setDone(true);
       setTimeout(() => navigate("/landlord/dashboard"), 1200);
     } catch (e) {
@@ -71,6 +116,11 @@ export default function CreateListing() {
     <div className="page">
       <div className="container" style={{ maxWidth: 520 }}>
         <h1 style={{ color: "var(--teal)" }}>List your property</h1>
+        {feeJustPaid && !error && (
+          <div className="banner banner-success" style={{ marginBottom: 16 }}>
+            Fee paid. Fill in your listing details below and submit to finish.
+          </div>
+        )}
         {error && <div className="banner banner-error" style={{ marginBottom: 16 }}>{error}</div>}
 
         <form onSubmit={onSubmit} className="card" style={{ padding: 24 }}>
@@ -119,17 +169,35 @@ export default function CreateListing() {
             </div>
           </div>
           <div className="field">
-            <label>Photo</label>
-            <input required type="file" accept="image/*" onChange={(e) => setPhotoFile(e.target.files?.[0] || null)} />
+            <label>Photos (up to 10)</label>
+            <input
+              required type="file" accept="image/*" multiple
+              onChange={(e) => setPhotoFiles(Array.from(e.target.files || []))}
+            />
+            {photoFiles.length > 0 && (
+              <span className="field-hint">{photoFiles.length} photo{photoFiles.length === 1 ? "" : "s"} selected.</span>
+            )}
+          </div>
+          <div className="field">
+            <label>Walkthrough video (optional)</label>
+            <input type="file" accept="video/*" onChange={(e) => setVideoFile(e.target.files?.[0] || null)} />
+            {videoFile && <span className="field-hint">{videoFile.name}</span>}
           </div>
           <div className="field">
             <label>Proof of ownership (C of O, receipt, or utility bill)</label>
             <input required type="file" accept="image/*,.pdf" onChange={(e) => setDocFile(e.target.files?.[0] || null)} />
             <span className="field-hint">Reviewed by an admin before your listing goes live. Not shown publicly.</span>
           </div>
-          <button className="btn btn-primary btn-block" disabled={busy} type="submit">
-            {busy ? "Submitting…" : "Submit for review"}
-          </button>
+
+          {feeRequired ? (
+            <button className="btn btn-primary btn-block" disabled={busy} type="button" onClick={payFeeAndRetry}>
+              {busy ? "Processing…" : "Pay listing fee and continue"}
+            </button>
+          ) : (
+            <button className="btn btn-primary btn-block" disabled={busy} type="submit">
+              {busy ? "Submitting…" : "Submit for review"}
+            </button>
+          )}
         </form>
       </div>
     </div>

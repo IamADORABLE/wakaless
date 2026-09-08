@@ -27,7 +27,7 @@ export default function AdminVerificationQueue() {
   async function decide(id, approve) {
     setBusyId(id);
     try {
-      const rejection_reason = approve ? undefined : window.prompt("Reason for rejection (shown to the landlord):") || "Proof of ownership did not pass review.";
+      const rejection_reason = approve ? undefined : window.prompt("Reason for rejection (shown to the landlord):") || "Photo did not pass review.";
       await api.reviewVerification(id, { approve, rejection_reason });
       setSelected(null);
       await load();
@@ -43,7 +43,7 @@ export default function AdminVerificationQueue() {
       <div className="container">
         <h1 style={{ color: "var(--teal)" }}>Landlord verification queue</h1>
         <p className="text-muted">
-          There's no automated identity check. Review the proof of ownership below before approving.
+          There's no automated identity check. Review the landlord's photo below before approving.
         </p>
 
         {error && <div className="banner banner-error" style={{ marginBottom: 16 }}>{error}</div>}
@@ -58,10 +58,10 @@ export default function AdminVerificationQueue() {
                   onClick={() => setSelected(v)}
                   style={{ display: "flex", alignItems: "center", gap: 16, cursor: "pointer", flex: 1 }}
                 >
-                  {v.ownership_proof_url && (
+                  {v.photo_url && (
                     <img
-                      src={api.fileUrl(v.ownership_proof_url)}
-                      alt={`Proof of ownership submitted by ${v.full_name}`}
+                      src={api.fileUrl(v.photo_url)}
+                      alt={`Photo submitted by ${v.full_name}`}
                       style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: "1px solid var(--border)" }}
                     />
                   )}
@@ -105,18 +105,18 @@ export default function AdminVerificationQueue() {
               {selected.submitted_at && <> · Submitted {new Date(selected.submitted_at).toLocaleString()}</>}
             </div>
 
-            {selected.ownership_proof_url ? (
-              <a href={api.fileUrl(selected.ownership_proof_url)} target="_blank" rel="noreferrer">
+            {selected.photo_url ? (
+              <a href={api.fileUrl(selected.photo_url)} target="_blank" rel="noreferrer">
                 <img
-                  src={api.fileUrl(selected.ownership_proof_url)}
-                  alt={`Proof of ownership submitted by ${selected.full_name}`}
+                  src={api.fileUrl(selected.photo_url)}
+                  alt={`Photo submitted by ${selected.full_name}`}
                   style={{ width: "100%", maxHeight: 420, objectFit: "contain", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg)" }}
                 />
               </a>
             ) : (
-              <p className="text-muted">No document was uploaded.</p>
+              <p className="text-muted">No photo was uploaded.</p>
             )}
-            <p className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>Click the document to open it full size.</p>
+            <p className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>Click the photo to open it full size.</p>
 
             <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
               <button className="btn btn-ghost btn-block" disabled={busyId === selected.id} onClick={() => decide(selected.id, false)}>Reject</button>

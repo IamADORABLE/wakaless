@@ -23,7 +23,9 @@ async function request(path, { method = "GET", body, isForm = false, auth = true
 
   if (!res.ok) {
     const message = (data && data.detail) || `Request failed (${res.status})`;
-    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+    const err = new Error(typeof message === "string" ? message : JSON.stringify(message));
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
@@ -32,10 +34,10 @@ export const api = {
   // auth
   signup: (payload) => request("/auth/signup", { method: "POST", body: payload, auth: false }),
   login: (payload) => request("/auth/login", { method: "POST", body: payload, auth: false }),
-  verifyEmail: (token) => request("/auth/verify-email", { method: "POST", body: { token }, auth: false }),
+  verifyEmail: (email, code) => request("/auth/verify-email", { method: "POST", body: { email, code }, auth: false }),
   resendVerification: (email) => request("/auth/resend-verification", { method: "POST", body: { email }, auth: false }),
   forgotPassword: (email) => request("/auth/forgot-password", { method: "POST", body: { email }, auth: false }),
-  resetPassword: (token, new_password) => request("/auth/reset-password", { method: "POST", body: { token, new_password }, auth: false }),
+  resetPassword: (email, code, new_password) => request("/auth/reset-password", { method: "POST", body: { email, code, new_password }, auth: false }),
 
   // listings
   browseListings: (params = {}) => {
@@ -46,6 +48,8 @@ export const api = {
   rentDurationOptions: () => request("/listings/rent-duration-options", { auth: false }),
   myListings: () => request("/listings/mine/list"),
   createListing: (payload) => request("/listings", { method: "POST", body: payload }),
+  initiateListingFee: () => request("/listings/additional-fee/initiate", { method: "POST" }),
+  verifyListingFee: (reference) => request("/listings/additional-fee/verify", { method: "POST", body: { reference } }),
   uploadListingPhoto: (file) => {
     const form = new FormData();
     form.append("file", file);
@@ -56,15 +60,20 @@ export const api = {
     form.append("file", file);
     return request("/listings/ownership-doc", { method: "POST", body: form, isForm: true });
   },
+  uploadListingVideo: (file) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request("/listings/video", { method: "POST", body: form, isForm: true });
+  },
   updateListingStatus: (id, status) =>
     request(`/listings/${id}/status`, { method: "PATCH", body: { status } }),
 
   // landlords / verification
   myVerification: () => request("/landlords/me/verification"),
-  uploadOwnershipProof: (file) => {
+  uploadLandlordPhoto: (file) => {
     const form = new FormData();
     form.append("file", file);
-    return request("/landlords/me/ownership-proof", { method: "POST", body: form, isForm: true });
+    return request("/landlords/me/photo", { method: "POST", body: form, isForm: true });
   },
   submitVerification: (payload) => request("/landlords/me/verify", { method: "POST", body: payload }),
   myBankDetails: () => request("/landlords/me/bank-details"),

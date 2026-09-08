@@ -48,34 +48,34 @@ def notify_renter_renewal_reminder(rent_payment, lead_time_label: str) -> bool:
     return result.success
 
 
-def send_verification_email(user, token: str) -> bool:
-    """Email a new signup a link to confirm they own this email address."""
-    verify_url = f"{settings.frontend_origin}/verify-email?token={token}"
-    subject = "Confirm your email for Wakaless"
+def send_verification_email(user, code: str) -> bool:
+    """Email a new signup a code to confirm they own this email address."""
+    subject = "Your Wakaless verification code"
     body = (
-        f"Hi {user.full_name}, welcome to Wakaless. Please confirm your email "
-        f"address by opening this link:\n\n{verify_url}\n\n"
+        f"Hi {user.full_name}, welcome to Wakaless. Your verification code is:\n\n"
+        f"{code}\n\n"
+        f"Enter it in the app to confirm your email. It expires in {settings.email_verification_code_expire_minutes} minutes.\n\n"
         "If you didn't create this account, you can ignore this email.\n\nWakaless"
     )
     result = get_email_provider().send(user.email, subject, body)
     return result.success
 
 
-def send_password_reset_email(user, token: str) -> bool:
-    """Email a renter/landlord/admin a link to set a new password."""
-    reset_url = f"{settings.frontend_origin}/reset-password?token={token}"
-    subject = "Reset your Wakaless password"
+def send_password_reset_email(user, code: str) -> bool:
+    """Email a renter/landlord/admin a code to set a new password."""
+    subject = "Your Wakaless password reset code"
     body = (
-        f"Hi {user.full_name}, we got a request to reset your Wakaless password. "
-        f"Open this link to choose a new one:\n\n{reset_url}\n\n"
-        "This link expires in 30 minutes. If you didn't request this, you can ignore this email.\n\nWakaless"
+        f"Hi {user.full_name}, we got a request to reset your Wakaless password. Your code is:\n\n"
+        f"{code}\n\n"
+        f"Enter it in the app to choose a new password. It expires in {settings.password_reset_code_expire_minutes} minutes.\n\n"
+        "If you didn't request this, you can ignore this email.\n\nWakaless"
     )
     result = get_email_provider().send(user.email, subject, body)
     return result.success
 
 
 def notify_admin_verification_pending(landlord) -> bool:
-    """Email the admin inbox when a landlord submits proof of ownership for
+    """Email the admin inbox when a landlord submits their photo for
     review. Best-effort: a failure here must never break the landlord's
     submit response, the request still shows up in the admin queue either way."""
     if not settings.admin_email:
@@ -85,7 +85,7 @@ def notify_admin_verification_pending(landlord) -> bool:
         subject = f"Landlord verification pending: {landlord.full_name}"
         body = (
             f"{landlord.full_name} ({landlord.phone}, {landlord.email}) just submitted "
-            f"proof of ownership for review.\n\n"
+            f"their photo for review.\n\n"
             f"Review it here: {queue_url}\n\nWakaless"
         )
         result = get_email_provider().send(settings.admin_email, subject, body)

@@ -17,11 +17,13 @@ class VerificationStatus(str, enum.Enum):
 
 class LandlordVerification(Base):
     """
-    One row per landlord ACCOUNT (not per listing) per the brief.
+    One row per landlord ACCOUNT (not per listing).
 
-    No automated identity-verification provider: a landlord uploads proof of
-    ownership (e.g. a utility bill, C of O, or tenancy agreement in their
-    name) and an admin manually approves or rejects it.
+    No automated identity-verification provider: a landlord uploads a photo
+    of themselves and an admin manually approves or rejects it. Proof of
+    ownership is collected separately, per listing (see Listing.ownership_doc_url) —
+    every listing already requires it, so it'd be redundant to also collect
+    it once at the account level.
     """
     __tablename__ = "landlord_verifications"
 
@@ -30,7 +32,7 @@ class LandlordVerification(Base):
 
     status = Column(Enum(VerificationStatus), default=VerificationStatus.unverified, nullable=False)
     failure_reason = Column(Text, nullable=True)
-    ownership_proof_url = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True)
 
     submitted_at = Column(DateTime, nullable=True)
     verified_at = Column(DateTime, nullable=True)

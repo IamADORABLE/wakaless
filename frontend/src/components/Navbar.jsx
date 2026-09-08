@@ -4,6 +4,27 @@ import { useAuth } from "../context/AuthContext";
 import { api } from "../api/client";
 import logo from "../assets/wakaless-icon-color.svg";
 
+const NAV_ITEMS = [
+  { to: "/", label: "Browse" },
+  { to: "/landlord/dashboard", label: "My listings", role: "landlord" },
+  { to: "/renter/payments", label: "My rentals", role: "renter" },
+  { to: "/chat", label: "Messages", roles: ["renter", "landlord"] },
+  { to: "/admin/review-queue", label: "Listings", role: "admin" },
+  { to: "/admin/verification-queue", label: "Verifications", role: "admin" },
+  { to: "/admin/availability-queue", label: "Availability", role: "admin" },
+  { to: "/admin/payouts", label: "Payouts", role: "admin" },
+  { to: "/admin/inspections", label: "Inspections", role: "admin" },
+  { to: "/admin/transactions", label: "Transactions", role: "admin" },
+  { to: "/admin/chats", label: "Chats", role: "admin" },
+  { to: "/admin/users", label: "Users", role: "admin" },
+];
+
+function visibleFor(item, user) {
+  if (item.role) return user?.role === item.role;
+  if (item.roles) return item.roles.includes(user?.role);
+  return true;
+}
+
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -29,11 +50,19 @@ export default function Navbar() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  function handleLogout() {
+    setOpen(false);
+    logout();
+    navigate("/");
+  }
+
+  const items = NAV_ITEMS.filter((item) => visibleFor(item, user));
+
   return (
     <>
       <header style={{ background: "transparent", position: "sticky", top: 0, zIndex: 100 }}>
-        <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
-          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 64, gap: 20 }}>
+          <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <img src={logo} alt="Wakaless" height={30} />
             <div>
               <div style={{ fontWeight: 800, fontSize: 18, color: "var(--teal)", lineHeight: 1 }}>Wakaless</div>
@@ -41,13 +70,28 @@ export default function Navbar() {
             </div>
           </Link>
 
+          <nav className="nav-links" style={{ alignItems: "center", gap: 20, fontSize: 14, fontWeight: 600, flex: 1, justifyContent: "flex-end" }}>
+            {items.map((item) => (
+              <Link key={item.to} to={item.to} style={{ color: "var(--ink)", whiteSpace: "nowrap" }}>{item.label}</Link>
+            ))}
+            {user ? (
+              <button className="btn btn-ghost" onClick={handleLogout}>Log out</button>
+            ) : (
+              <>
+                <Link to="/login" style={{ color: "var(--ink)", whiteSpace: "nowrap" }}>Log in</Link>
+                <Link to="/signup" className="btn btn-primary">Get started</Link>
+              </>
+            )}
+          </nav>
+
           <button
+            className="nav-hamburger-btn"
             aria-label="Open menu"
             onClick={() => setOpen(true)}
             style={{
-              display: "flex", flexDirection: "column", justifyContent: "center", gap: 5,
+              flexDirection: "column", justifyContent: "center", gap: 5,
               width: 40, height: 40, background: "var(--white)", border: "1px solid var(--border)",
-              borderRadius: 10, cursor: "pointer",
+              borderRadius: 10, cursor: "pointer", flexShrink: 0,
             }}
           >
             <span style={{ display: "block", height: 2, width: 20, background: "var(--ink)", margin: "0 auto" }} />
@@ -59,12 +103,15 @@ export default function Navbar() {
 
       {user && user.role !== "admin" && !user.email_verified && (
         <div className="banner banner-info" style={{ margin: "0 auto 16px", maxWidth: 960, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <span>Please confirm your email address.{resendState === "sent" ? " Check your inbox for the link." : ""}</span>
-          {resendState !== "sent" && (
-            <button className="btn btn-ghost" disabled={resendState === "sending"} onClick={resendVerification}>
-              {resendState === "sending" ? "Sending…" : "Resend verification email"}
-            </button>
-          )}
+          <span>Please confirm your email address.{resendState === "sent" ? " Check your inbox for the code." : ""}</span>
+          <span style={{ display: "flex", gap: 8 }}>
+            <Link to="/verify-email" className="btn btn-secondary">Enter code</Link>
+            {resendState !== "sent" && (
+              <button className="btn btn-ghost" disabled={resendState === "sending"} onClick={resendVerification}>
+                {resendState === "sending" ? "Sending…" : "Resend code"}
+              </button>
+            )}
+          </span>
         </div>
       )}
 
@@ -95,28 +142,14 @@ export default function Navbar() {
         </div>
 
         <nav style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 15, fontWeight: 600 }}>
-          <SidebarLink to="/">Browse</SidebarLink>
-          {user?.role === "landlord" && <SidebarLink to="/landlord/dashboard">My listings</SidebarLink>}
-          {user?.role === "renter" && <SidebarLink to="/renter/payments">My rentals</SidebarLink>}
-          {(user?.role === "renter" || user?.role === "landlord") && <SidebarLink to="/chat">Messages</SidebarLink>}
-          {user?.role === "admin" && <SidebarLink to="/admin/review-queue">Listings</SidebarLink>}
-          {user?.role === "admin" && <SidebarLink to="/admin/verification-queue">Verifications</SidebarLink>}
-          {user?.role === "admin" && <SidebarLink to="/admin/availability-queue">Availability</SidebarLink>}
-          {user?.role === "admin" && <SidebarLink to="/admin/payouts">Payouts</SidebarLink>}
-          {user?.role === "admin" && <SidebarLink to="/admin/inspections">Inspections</SidebarLink>}
-          {user?.role === "admin" && <SidebarLink to="/admin/transactions">Transactions</SidebarLink>}
-          {user?.role === "admin" && <SidebarLink to="/admin/chats">Chats</SidebarLink>}
-          {user?.role === "admin" && <SidebarLink to="/admin/users">Users</SidebarLink>}
+          {items.map((item) => (
+            <SidebarLink key={item.to} to={item.to}>{item.label}</SidebarLink>
+          ))}
 
           <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "12px 0" }} />
 
           {user ? (
-            <button
-              className="btn btn-ghost btn-block"
-              onClick={() => { setOpen(false); logout(); navigate("/"); }}
-            >
-              Log out
-            </button>
+            <button className="btn btn-ghost btn-block" onClick={handleLogout}>Log out</button>
           ) : (
             <>
               <SidebarLink to="/login">Log in</SidebarLink>

@@ -34,6 +34,9 @@ export default function PaymentCallback() {
         } else if (kind === "payment" && listingId) {
           await api.verifyRentPayment(reference);
           navigate(`/listings/${listingId}`, { replace: true });
+        } else if (kind === "additional_listing_fee") {
+          await api.verifyListingFee(reference);
+          navigate("/landlord/listings/new?fee_paid=1", { replace: true });
         } else {
           setError("Couldn't tell what this payment was for.");
         }

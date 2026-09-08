@@ -31,12 +31,12 @@ def my_verification(user: User = Depends(require_role(UserRole.landlord)), db: S
     return VerificationOut.model_validate(v)
 
 
-@router.post("/me/ownership-proof", summary="Upload the proof-of-ownership document/photo")
-def upload_ownership_proof(
+@router.post("/me/photo", summary="Upload a photo of the landlord, for identity confirmation")
+def upload_photo(
     file: UploadFile = File(...),
     user: User = Depends(require_role(UserRole.landlord)),
 ):
-    url = save_upload(file, subfolder="ownership-proofs")
+    url = save_upload(file, subfolder="landlord-photos")
     return {"url": url}
 
 
@@ -47,9 +47,10 @@ def submit_verification(
     db: Session = Depends(get_db),
 ):
     """
-    One-time per account, per the brief. No automated identity check. An
-    admin manually reviews the uploaded proof of ownership before the
-    account is marked "verified" (see POST /admin/verifications/{id}/review).
+    One-time per account. No automated identity check. An admin manually
+    reviews the uploaded photo before the account is marked "verified" (see
+    POST /admin/verifications/{id}/review). Proof of ownership is collected
+    separately, per listing, since every listing already requires it.
     """
     existing = db.query(LandlordVerification).filter(LandlordVerification.user_id == user.id).first()
     if existing and existing.status in (VerificationStatus.verified, VerificationStatus.pending):
@@ -59,7 +60,7 @@ def submit_verification(
         existing = LandlordVerification(user_id=user.id)
         db.add(existing)
 
-    existing.ownership_proof_url = payload.ownership_proof_url
+    existing.photo_url = payload.photo_url
     existing.submitted_at = datetime.utcnow()
     existing.status = VerificationStatus.pending
     existing.failure_reason = None

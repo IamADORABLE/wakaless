@@ -93,8 +93,8 @@ def review_listing(
 def verification_queue(admin: User = Depends(require_role(UserRole.admin)), db: Session = Depends(get_db)):
     """
     Manual review queue: there's no automated identity-verification
-    provider, so every landlord's proof of ownership is checked here by
-    an admin before the account is marked "verified".
+    provider, so every landlord's photo is checked here by an admin before
+    the account is marked "verified".
     """
     verifications = (
         db.query(LandlordVerification)
@@ -106,7 +106,7 @@ def verification_queue(admin: User = Depends(require_role(UserRole.admin)), db: 
         VerificationQueueItem(
             id=v.id, user_id=v.user_id, full_name=v.user.full_name,
             phone=v.user.phone, email=v.user.email,
-            ownership_proof_url=v.ownership_proof_url, submitted_at=v.submitted_at,
+            photo_url=v.photo_url, submitted_at=v.submitted_at,
         )
         for v in verifications
     ]
@@ -131,7 +131,7 @@ def review_verification(
         verification.failure_reason = None
     else:
         verification.status = VerificationStatus.failed
-        verification.failure_reason = payload.rejection_reason or "Proof of ownership did not pass review."
+        verification.failure_reason = payload.rejection_reason or "Photo did not pass review."
 
     db.commit()
     db.refresh(verification)
